@@ -259,5 +259,3 @@ This simulation is provided as an educational and demonstration tool. Use freely
 Built with modern web technologies and inspired by AAA-grade cinematic experiences, professional oceanographic equipment, and the wonder of deep-sea exploration.
 
 ---
-
-**Version** – 1.0 | **Status** – Production Ready | **Last Updated** – 2026
