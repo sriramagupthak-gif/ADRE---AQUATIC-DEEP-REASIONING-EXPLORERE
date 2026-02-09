@@ -1,0 +1,2303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADRE ROV: HADAL ZONE - Cinematic Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;500;700;800&family=Share+Tech+Mono&display=swap');
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body { 
+            overflow: hidden; 
+            background: #000; 
+            font-family: 'Rajdhani', sans-serif;
+            user-select: none;
+        }
+        
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        /* Cinematic HUD */
+        .hud-layer {
+            position: fixed;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        .hud-text { font-family: 'Share Tech Mono', monospace; }
+        
+        /* Film grain overlay */
+        .film-grain {
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+            animation: grain 0.5s steps(1) infinite;
+            pointer-events: none;
+            z-index: 5;
+            opacity: 0.4;
+            mix-blend-mode: overlay;
+        }
+        
+        @keyframes grain {
+            0%, 100% { transform: translate(0, 0); }
+            10% { transform: translate(-2%, -2%); }
+            20% { transform: translate(2%, 2%); }
+            30% { transform: translate(-1%, 1%); }
+            40% { transform: translate(1%, -1%); }
+            50% { transform: translate(-2%, 2%); }
+            60% { transform: translate(2%, -2%); }
+            70% { transform: translate(-1%, -1%); }
+            80% { transform: translate(1%, 1%); }
+            90% { transform: translate(-2%, -1%); }
+        }
+        
+        /* Vignette */
+        .vignette {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at center, transparent 40%, rgba(0,0,0,0.8) 100%);
+            pointer-events: none;
+            z-index: 6;
+        }
+        
+        /* Chromatic aberration */
+        .chromatic {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(90deg, 
+                rgba(255,0,0,0.03) 0%, 
+                transparent 30%, 
+                transparent 70%, 
+                rgba(0,255,255,0.03) 100%);
+            pointer-events: none;
+            z-index: 7;
+            mix-blend-mode: screen;
+        }
+        
+        /* Scan lines */
+        .scan-lines {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0.03) 50%,
+                transparent 50%
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 8;
+            animation: scanline 10s linear infinite;
+        }
+        
+        @keyframes scanline {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(10px); }
+        }
+        
+        /* Lens dirt */
+        .lens-dirt {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at 20% 30%, rgba(100,100,100,0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 70%, rgba(100,100,100,0.08) 0%, transparent 40%);
+            pointer-events: none;
+            z-index: 9;
+        }
+        
+        /* HUD Elements */
+        .top-bar {
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 2rem;
+            background: linear-gradient(to bottom, rgba(0,10,20,0.9) 0%, transparent 100%);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        
+        .mode-selector {
+            display: flex;
+            gap: 1rem;
+            pointer-events: auto;
+        }
+        
+        .mode-btn {
+            padding: 0.75rem 1.5rem;
+            border: 1px solid rgba(0,255,200,0.3);
+            background: rgba(0,20,30,0.6);
+            color: #00ffc8;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 700;
+            font-size: 0.875rem;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(10px);
+            text-transform: uppercase;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .mode-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0,255,200,0.2), transparent);
+            transition: left 0.5s;
+        }
+        
+        .mode-btn:hover::before {
+            left: 100%;
+        }
+        
+        .mode-btn:hover {
+            border-color: #00ffc8;
+            box-shadow: 0 0 30px rgba(0,255,200,0.3);
+            transform: translateY(-2px);
+        }
+        
+        .mode-btn.active {
+            background: rgba(0,255,200,0.15);
+            border-color: #00ffc8;
+            box-shadow: 0 0 40px rgba(0,255,200,0.4), inset 0 0 20px rgba(0,255,200,0.1);
+        }
+        
+        .mode-btn.thermal {
+            color: #ff8800;
+            border-color: rgba(255,136,0,0.3);
+        }
+        
+        .mode-btn.thermal:hover, .mode-btn.thermal.active {
+            border-color: #ff8800;
+            box-shadow: 0 0 40px rgba(255,136,0,0.4);
+            background: rgba(255,136,0,0.15);
+        }
+        
+        .mode-btn.lidar {
+            color: #00ff44;
+            border-color: rgba(0,255,68,0.3);
+        }
+        
+        .mode-btn.lidar:hover, .mode-btn.lidar.active {
+            border-color: #00ff44;
+            box-shadow: 0 0 40px rgba(0,255,68,0.4);
+            background: rgba(0,255,68,0.15);
+        }
+        
+        /* Status Panel */
+        .status-panel {
+            left: 2rem;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+        
+        .status-group {
+            background: rgba(0,10,20,0.7);
+            border-left: 3px solid #00ffc8;
+            padding: 1.5rem;
+            backdrop-filter: blur(20px);
+            min-width: 280px;
+        }
+        
+        .status-label {
+            color: #008866;
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+        
+        .status-value {
+            color: #00ffc8;
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(0,255,200,0.1);
+            margin-top: 0.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ffc8, #00ffaa);
+            transition: width 0.5s ease;
+            position: relative;
+        }
+        
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 20px;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.8));
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(20px); }
+        }
+        
+        /* Semantic Analysis Panel */
+        .analysis-panel {
+            right: 2rem;
+            top: 15%;
+            width: 380px;
+            background: rgba(0,5,10,0.85);
+            border: 1px solid rgba(0,255,100,0.2);
+            backdrop-filter: blur(20px);
+        }
+        
+        .analysis-header {
+            background: linear-gradient(90deg, rgba(0,255,100,0.2), transparent);
+            padding: 1rem;
+            border-bottom: 1px solid rgba(0,255,100,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .analysis-title {
+            color: #00ff64;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .recording-dot {
+            width: 8px;
+            height: 8px;
+            background: #ff0044;
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+            box-shadow: 0 0 10px #ff0044;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+        
+        .analysis-content {
+            padding: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .log-entry {
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: rgba(0,255,100,0.05);
+            border-left: 2px solid #00ff64;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.875rem;
+            color: #aaffaa;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        .target-info {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(0,100,255,0.1);
+            border: 1px solid rgba(0,200,255,0.3);
+        }
+        
+        .target-name {
+            color: #ffcc00;
+            font-size: 1.125rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .target-data {
+            color: #88ccff;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+        
+        /* Crosshair */
+        .crosshair {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            pointer-events: none;
+            z-index: 20;
+        }
+        
+        .crosshair-ring {
+            position: absolute;
+            inset: 0;
+            border: 2px solid rgba(0,255,200,0.6);
+            border-radius: 50%;
+            animation: rotate 4s linear infinite;
+        }
+        
+        .crosshair-ring::before {
+            content: '';
+            position: absolute;
+            inset: 4px;
+            border: 1px solid rgba(0,255,200,0.3);
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: rotate 2s linear infinite reverse;
+        }
+        
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .crosshair-dot {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            background: #00ffc8;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px #00ffc8;
+        }
+        
+        .crosshair-lines {
+            position: absolute;
+            inset: -20px;
+        }
+        
+        .crosshair-lines::before,
+        .crosshair-lines::after {
+            content: '';
+            position: absolute;
+            background: rgba(0,255,200,0.3);
+        }
+        
+        .crosshair-lines::before {
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            transform: translateY(-50%);
+        }
+        
+        .crosshair-lines::after {
+            left: 50%;
+            top: 0;
+            width: 1px;
+            height: 100%;
+            transform: translateX(-50%);
+        }
+        
+        /* Depth Indicator */
+        .depth-indicator {
+            position: fixed;
+            right: 2rem;
+            bottom: 30%;
+            height: 200px;
+            width: 60px;
+            background: rgba(0,10,20,0.6);
+            border: 1px solid rgba(0,255,200,0.2);
+        }
+        
+        .depth-scale {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(to bottom, 
+                rgba(0,255,200,0.8) 0%, 
+                rgba(0,255,200,0.2) 100%);
+        }
+        
+        .depth-marker {
+            position: absolute;
+            right: 5px;
+            width: 50px;
+            text-align: right;
+            color: #00ffc8;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.875rem;
+            transform: translateY(50%);
+        }
+        
+        .depth-current {
+            position: absolute;
+            left: 5px;
+            top: 50%;
+            color: #ffcc00;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 1.25rem;
+            font-weight: 700;
+            transform: translateY(-50%);
+        }
+        
+        /* Controls */
+        .controls-hint {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 2rem;
+            background: rgba(0,10,20,0.8);
+            padding: 1rem 2rem;
+            border: 1px solid rgba(0,255,200,0.2);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-key {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .key {
+            width: 40px;
+            height: 40px;
+            border: 1px solid rgba(0,255,200,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #00ffc8;
+            font-weight: 700;
+            font-size: 0.875rem;
+            background: rgba(0,255,200,0.1);
+        }
+        
+        .key-label {
+            color: #008866;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+        
+        /* Loading Screen */
+        .loading-screen {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 1s;
+        }
+        
+        .loading-text {
+            color: #00ffc8;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: 0.5em;
+            margin-bottom: 2rem;
+        }
+        
+        .loading-bar {
+            width: 400px;
+            height: 2px;
+            background: rgba(0,255,200,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .loading-progress {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #00ffc8, #00ffaa);
+            transition: width 0.3s;
+            box-shadow: 0 0 20px #00ffc8;
+        }
+        
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Loading Screen -->
+<div class="loading-screen" id="loading">
+    <div class="loading-text">INITIALIZING HADAL SYSTEM</div>
+    <div class="loading-bar">
+        <div class="loading-progress" id="loading-progress"></div>
+    </div>
+    <div class="hud-text text-cyan-500 mt-4 text-sm">Loading volumetric systems...</div>
+</div>
+
+<!-- Film Effects -->
+<div class="film-grain"></div>
+<div class="vignette"></div>
+<div class="chromatic"></div>
+<div class="scan-lines"></div>
+<div class="lens-dirt"></div>
+
+<!-- 3D Canvas -->
+<div id="canvas-container"></div>
+
+<!-- HUD -->
+<div class="hud-layer top-bar">
+    <div>
+        <h1 class="text-3xl font-bold text-cyan-400 tracking-widest uppercase mb-1">ADRE ROV <span class="text-cyan-600 text-lg">Mk.IV Deep Explorer</span></h1>
+        <div class="hud-text text-cyan-300 text-sm flex items-center gap-4">
+            <span class="flex items-center gap-2">
+                <span class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
+                HADAL ZONE OPERATIONS
+            </span>
+            <span class="text-cyan-600">|</span>
+            <span>DEPTH: <span id="depth-display" class="text-yellow-400">11,034</span>m</span>
+            <span class="text-cyan-600">|</span>
+            <span>PRESSURE: <span class="text-red-400">1,098 ATM</span></span>
+        </div>
+    </div>
+    
+    <div class="mode-selector">
+        <button class="mode-btn active" onclick="setMode('normal')" id="btn-normal">
+            <span class="block text-xs opacity-70 mb-1">VISUAL</span>
+            RGB NORMAL
+        </button>
+        <button class="mode-btn thermal" onclick="setMode('thermal')" id="btn-thermal">
+            <span class="block text-xs opacity-70 mb-1">THERMAL</span>
+            CHRONOGRAPHY
+        </button>
+        <button class="mode-btn lidar" onclick="setMode('lidar')" id="btn-lidar">
+            <span class="block text-xs opacity-70 mb-1">LIDAR</span>
+            MESH SCAN
+        </button>
+    </div>
+</div>
+
+<!-- Left Status Panel -->
+<div class="hud-layer status-panel">
+    <div class="status-group">
+        <div class="status-label">Thruster Systems</div>
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-cyan-400 font-bold">MAIN PROPULSION</span>
+            <span class="hud-text text-cyan-300">98.4%</span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: 98%"></div>
+        </div>
+        <div class="flex justify-between items-center mt-3 mb-2">
+            <span class="text-cyan-400 font-bold">AUXILIARY</span>
+            <span class="hud-text text-cyan-300">94.2%</span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: 94%"></div>
+        </div>
+    </div>
+    
+    <div class="status-group">
+        <div class="status-label">Illumination Array</div>
+        <div class="flex items-center gap-3 mb-2">
+            <div class="w-3 h-3 bg-yellow-400 rounded-full animate-pulse shadow-lg shadow-yellow-400/50"></div>
+            <span class="text-yellow-200 font-bold tracking-wider">DUAL LED HIGH INTENSITY</span>
+        </div>
+        <div class="hud-text text-xs text-cyan-500 mt-2">
+            BEAM ANGLE: 15° | LUMENS: 50,000 | TEMP: 5600K
+        </div>
+    </div>
+    
+    <div class="status-group">
+        <div class="status-label">Power Management</div>
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-cyan-400 font-bold">BATTERY RESERVE</span>
+            <span class="hud-text text-cyan-300">72.8%</span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: 72%"></div>
+        </div>
+        <div class="hud-text text-xs text-cyan-500 mt-2">
+            EST. MISSION TIME: 4.2 HOURS REMAINING
+        </div>
+    </div>
+</div>
+
+<!-- Right Analysis Panel -->
+<div class="hud-layer analysis-panel">
+    <div class="analysis-header">
+        <div class="analysis-title">
+            <div class="recording-dot"></div>
+            AI SEMANTIC REASONING
+        </div>
+        <div class="hud-text text-xs text-green-400">v3.7.2</div>
+    </div>
+    <div class="analysis-content" id="semantic-log">
+        <div class="log-entry opacity-50">> System initialization complete...</div>
+        <div class="log-entry opacity-50">> Hadal Zone entry confirmed at 11,034m</div>
+        <div class="log-entry">> Environmental systems nominal</div>
+        <div class="log-entry">> Bioluminescent detection algorithms active</div>
+    </div>
+    
+    <div class="target-info" id="target-panel">
+        <div class="target-name">SCANNING...</div>
+        <div class="target-data">
+            Awaiting target acquisition. Use crosshair to analyze entities.
+        </div>
+    </div>
+</div>
+
+<!-- Crosshair -->
+<div class="crosshair">
+    <div class="crosshair-lines"></div>
+    <div class="crosshair-ring"></div>
+    <div class="crosshair-dot"></div>
+</div>
+
+<!-- Depth Indicator -->
+<div class="depth-indicator">
+    <div class="depth-scale"></div>
+    <div class="depth-marker" style="top: 20%">10,000m</div>
+    <div class="depth-marker" style="top: 40%">10,500m</div>
+    <div class="depth-marker" style="top: 60%">11,000m</div>
+    <div class="depth-marker" style="top: 80%">11,500m</div>
+    <div class="depth-current">11,034</div>
+</div>
+
+<!-- Controls -->
+<div class="controls-hint">
+    <div class="control-key">
+        <div class="key">W</div>
+        <span class="key-label">Forward</span>
+    </div>
+    <div class="control-key">
+        <div class="key">S</div>
+        <span class="key-label">Reverse</span>
+    </div>
+    <div class="control-key">
+        <div class="key">A</div>
+        <span class="key-label">Strafe L</span>
+    </div>
+    <div class="control-key">
+        <div class="key">D</div>
+        <span class="key-label">Strafe R</span>
+    </div>
+    <div class="control-key">
+        <div class="key">Q</div>
+        <span class="key-label">Ascend</span>
+    </div>
+    <div class="control-key">
+        <div class="key">E</div>
+        <span class="key-label">Descend</span>
+    </div>
+    <div class="control-key">
+        <div class="key" style="font-size: 0.7rem;">SHIFT</div>
+        <span class="key-label">Boost</span>
+    </div>
+</div>
+
+<script>
+// ==========================================
+// GTA V-LEVEL HADAL ZONE SIMULATION
+// Advanced Three.js Implementation
+// ==========================================
+
+let scene, camera, renderer, composer;
+let rov, rovVelocity = new THREE.Vector3();
+let terrain, terrainGeometry;
+let marineSnowSystem;
+let creatures = [];
+let thermalVents = [];
+let particles = [];
+let currentMode = 'normal';
+let clock = new THREE.Clock();
+let mixer; // Animation mixer
+let animations = {};
+
+// Input state
+const keys = {};
+let mouseX = 0, mouseY = 0;
+
+// Semantic database
+const database = {
+    'Anglerfish': {
+        name: 'Melanocetus johnsonii',
+        desc: 'Deep-sea predator with modified dorsal spine bioluminescent esca',
+        analysis: 'Cranial structure: High mineral density. Lure wavelength: 490nm blue-green. Jaw extension: 120% body width.',
+        threat: 'MODERATE',
+        behavior: 'Ambush predator. Attracted to light sources initially, then avoids intense illumination.'
+    },
+    'Giant Isopod': {
+        name: 'Bathynomus giganteus',
+        desc: 'Scavenging crustacean - largest isopod species',
+        analysis: 'Exoskeleton: Calcium carbonate with magnesium deposits. Size: 45cm. Metabolic rate: 0.1x surface species.',
+        threat: 'LOW',
+        behavior: 'Benthic scavenger. Slow movement pattern. Rolls into defensive ball when threatened.'
+    },
+    'Snailfish': {
+        name: 'Pseudoliparis swirei',
+        desc: 'Gelatinous benthic dweller - deepest dwelling vertebrate',
+        analysis: 'Dermis: 90% water content. No swim bladder. Pressure adaptation: TMAO protein stabilization.',
+        threat: 'NONE',
+        behavior: 'Drifts with current. Translucent body provides camouflage against predators.'
+    },
+    'Xenophyophore': {
+        name: 'Syringammina fragilissima',
+        desc: 'Giant single-celled organism - largest known single cell',
+        analysis: 'Test composition: Agglutinated sediment particles. Size: 20cm diameter. Filter feeding appendages present.',
+        threat: 'NONE',
+        behavior: 'Sessile. Creates local microhabitats for smaller organisms.'
+    },
+    'Hydrothermal Vent': {
+        name: 'Black Smoker Chimney',
+        desc: 'Superheated mineral-rich fluid exhaust',
+        analysis: 'Temperature: 380°C core. Mineral content: Fe, Zn, Cu sulfides. Flow rate: 1-2 m/s.',
+        threat: 'EXTREME',
+        behavior: 'Continuous effluent. Creates chemosynthetic ecosystems in immediate vicinity.'
+    }
+};
+
+// Loading progress
+let loadProgress = 0;
+const loadingScreen = document.getElementById('loading');
+const loadingBar = document.getElementById('loading-progress');
+
+function updateLoading(progress) {
+    loadProgress = progress;
+    loadingBar.style.width = progress + '%';
+    if (progress >= 100) {
+        setTimeout(() => {
+            loadingScreen.classList.add('hidden');
+        }, 500);
+    }
+}
+
+// Global error handlers to capture runtime exceptions and display them in HUD
+window.addEventListener('error', (e) => {
+    const msg = e && e.message ? e.message : String(e);
+    try {
+        const log = document.getElementById('semantic-log');
+        if (log) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.style.background = 'rgba(255,0,0,0.06)';
+            entry.innerHTML = `<strong>Runtime error:</strong> ${msg}`;
+            log.appendChild(entry);
+        }
+    } catch (err) { console.error(err); }
+    loadingScreen.classList.remove('hidden');
+    const errDiv = document.createElement('div');
+    errDiv.style.color = 'red';
+    errDiv.style.marginTop = '12px';
+    errDiv.textContent = 'Error: ' + msg;
+    loadingScreen.appendChild(errDiv);
+});
+
+window.addEventListener('unhandledrejection', (ev) => {
+    const reason = ev && ev.reason ? ev.reason : 'Promise rejection';
+    try {
+        const log = document.getElementById('semantic-log');
+        if (log) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.style.background = 'rgba(255,0,0,0.06)';
+            entry.innerHTML = `<strong>Unhandled rejection:</strong> ${reason}`;
+            log.appendChild(entry);
+        }
+    } catch (err) { console.error(err); }
+    loadingScreen.classList.remove('hidden');
+});
+
+// ==========================================
+// INITIALIZATION
+// ==========================================
+
+function init() {
+    // Scene setup with cinematic fog
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x000205, 0.015);
+    scene.background = new THREE.Color(0x000205);
+    
+    // High-end camera
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 3, 12);
+    
+    // Renderer with advanced settings
+    renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: "high-performance",
+        stencil: false,
+        depth: true
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(1);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+    
+    try {
+        // Post-processing for cinematic bloom
+        const renderScene = new THREE.RenderPass(scene, camera);
+        const bloomPass = new THREE.UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            1.0,  // strength (reduced for performance)
+            0.4,  // radius
+            0.85  // threshold
+        );
+
+        composer = new THREE.EffectComposer(renderer);
+        composer.addPass(renderScene);
+        composer.addPass(bloomPass);
+
+        updateLoading(20);
+
+        // Build world
+        createCinematicTerrain();
+        createROVWithAnimations();
+        createAdvancedMarineSnow();
+        createAnimatedCreatures();
+        createThermalVentsWithParticles();
+        setupCinematicLighting();
+
+        updateLoading(60);
+    } catch (err) {
+        console.error('Initialization failed:', err);
+        try {
+            const log = document.getElementById('semantic-log');
+            if (log) {
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.style.background = 'rgba(255,0,0,0.06)';
+                entry.innerHTML = `<strong>Initialization failed:</strong> ${err && err.message ? err.message : String(err)}`;
+                log.appendChild(entry);
+            }
+        } catch (e) { console.error(e); }
+        // reveal loading screen and show error
+        loadingScreen.classList.remove('hidden');
+        const errBox = document.createElement('pre');
+        errBox.style.color = 'red';
+        errBox.style.maxWidth = '80%';
+        errBox.style.overflowX = 'auto';
+        errBox.textContent = (err && err.stack) ? err.stack : String(err);
+        loadingScreen.appendChild(errBox);
+        return; // abort init
+    }
+    
+    // Event listeners
+    window.addEventListener('resize', onWindowResize);
+    document.addEventListener('keydown', (e) => keys[e.code] = true);
+    document.addEventListener('keyup', (e) => keys[e.code] = false);
+    document.addEventListener('mousemove', (e) => {
+        mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+        mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+    });
+    
+    updateLoading(100);
+    animate();
+}
+
+// ==========================================
+// CINEMATIC TERRAIN GENERATION
+// ==========================================
+
+function createCinematicTerrain() {
+    // High-resolution terrain with multiple octaves of noise
+    const geometry = new THREE.PlaneGeometry(300, 300, 128, 128);
+    const positions = geometry.attributes.position;
+    
+    // Multi-octave noise function
+    function noise(x, z) {
+        return Math.sin(x * 0.02) * Math.cos(z * 0.02) * 8 +
+               Math.sin(x * 0.05) * Math.cos(z * 0.04) * 4 +
+               Math.sin(x * 0.1) * Math.cos(z * 0.1) * 2 +
+               Math.sin(x * 0.2 + z * 0.15) * 1 +
+               (Math.random() - 0.5) * 0.2;
+    }
+    
+    for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i);
+        const y = positions.getY(i);
+        
+        let z = noise(x, y);
+        
+        // Create dramatic canyon systems
+        const canyon1 = Math.sin(x * 0.015) * 12;
+        const canyon2 = Math.cos(y * 0.02) * 8;
+        const canyonDist = Math.min(Math.abs(y - canyon1), Math.abs(x - canyon2));
+        
+        if (canyonDist < 8) {
+            z -= (8 - canyonDist) * 1.5;
+        }
+        
+        // Add ridge lines
+        const ridge = Math.sin(x * 0.03 + y * 0.02) * 3;
+        if (ridge > 2) z += ridge * 0.5;
+        
+        positions.setZ(i, z - 15);
+    }
+    
+    geometry.computeVertexNormals();
+    
+    // Advanced terrain material with normal mapping simulation
+    const material = new THREE.MeshStandardMaterial({
+        color: 0x151520,
+        roughness: 0.95,
+        metalness: 0.15,
+        flatShading: false,
+        displacementScale: 2
+    });
+    
+    terrain = new THREE.Mesh(geometry, material);
+    terrain.rotation.x = -Math.PI / 2;
+    terrain.receiveShadow = true;
+    terrain.castShadow = true;
+    scene.add(terrain);
+    
+    // Add detailed rock formations
+    createRockFormations();
+    
+    // Add sediment details
+    createSedimentDetails();
+}
+
+function createRockFormations() {
+    const rockMaterial = new THREE.MeshStandardMaterial({
+        color: 0x222230,
+        roughness: 0.9,
+        metalness: 0.2,
+        flatShading: true
+    });
+    
+    // Large formations
+    for (let i = 0; i < 20; i++) {
+        const scale = Math.random() * 4 + 1;
+        const geometry = new THREE.DodecahedronGeometry(scale, 1);
+        
+        // Distort vertices for jagged look
+        const positions = geometry.attributes.position;
+        for (let j = 0; j < positions.count; j++) {
+            positions.setX(j, positions.getX(j) + (Math.random() - 0.5) * scale * 0.3);
+            positions.setY(j, positions.getY(j) + (Math.random() - 0.5) * scale * 0.3);
+            positions.setZ(j, positions.getZ(j) + (Math.random() - 0.5) * scale * 0.3);
+        }
+        geometry.computeVertexNormals();
+        
+        const rock = new THREE.Mesh(geometry, rockMaterial);
+        rock.position.set(
+            (Math.random() - 0.5) * 200,
+            -12 + Math.random() * 4,
+            (Math.random() - 0.5) * 200
+        );
+        rock.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+        );
+        rock.castShadow = true;
+        rock.receiveShadow = true;
+        scene.add(rock);
+    }
+}
+
+function createSedimentDetails() {
+    // Add small debris scattered on seabed
+    const debrisGeo = new THREE.BoxGeometry(0.2, 0.1, 0.2);
+    const debrisMat = new THREE.MeshStandardMaterial({ color: 0x333340 });
+    
+    const instancedMesh = new THREE.InstancedMesh(debrisGeo, debrisMat, 300);
+    const dummy = new THREE.Object3D();
+    
+    for (let i = 0; i < 300; i++) {
+        dummy.position.set(
+            (Math.random() - 0.5) * 200,
+            -14.8,
+            (Math.random() - 0.5) * 200
+        );
+        dummy.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            0
+        );
+        dummy.scale.setScalar(0.5 + Math.random());
+        dummy.updateMatrix();
+        instancedMesh.setMatrixAt(i, dummy.matrix);
+    }
+    
+    scene.add(instancedMesh);
+}
+
+// ==========================================
+// CINEMATIC ROV WITH ANIMATIONS
+// ==========================================
+
+function createROVWithAnimations() {
+    rov = new THREE.Group();
+    
+    // Main hull - Titanium alloy with realistic material
+    const hullGeo = new THREE.SphereGeometry(1.5, 64, 64);
+    const hullMat = new THREE.MeshPhysicalMaterial({
+        color: 0x9aaab6,
+        metalness: 0.98,
+        roughness: 0.15,
+        clearcoat: 0.8,
+        clearcoatRoughness: 0.1,
+        envMapIntensity: 1.5
+    });
+    const hull = new THREE.Mesh(hullGeo, hullMat);
+    hull.castShadow = true;
+    rov.add(hull);
+    
+    // Detailed surface scratches and wear
+    const scratchGroup = new THREE.Group();
+    for (let i = 0; i < 20; i++) {
+        const scratch = new THREE.Mesh(
+            new THREE.BoxGeometry(0.4, 0.02, 0.02),
+            new THREE.MeshStandardMaterial({ 
+                color: 0x555555, 
+                metalness: 0.8,
+                roughness: 0.4
+            })
+        );
+        
+        // Distribute scratches on sphere surface
+        const phi = Math.random() * Math.PI * 2;
+        const theta = Math.random() * Math.PI;
+        const r = 1.51;
+        
+        scratch.position.set(
+            r * Math.sin(theta) * Math.cos(phi),
+            r * Math.cos(theta),
+            r * Math.sin(theta) * Math.sin(phi)
+        );
+        scratch.lookAt(0, 0, 0);
+        scratch.rotateZ(Math.random() * Math.PI);
+        scratchGroup.add(scratch);
+    }
+    rov.add(scratchGroup);
+    
+    // Thruster assemblies with animated propellers
+    const thrusterPositions = [
+        { pos: [1.2, 0, 1.2], rot: [0, Math.PI/2, 0], name: 'front_right' },
+        { pos: [-1.2, 0, 1.2], rot: [0, -Math.PI/2, 0], name: 'front_left' },
+        { pos: [1.2, 0, -1.2], rot: [0, Math.PI/2, 0], name: 'rear_right' },
+        { pos: [-1.2, 0, -1.2], rot: [0, -Math.PI/2, 0], name: 'rear_left' },
+        { pos: [0, 1.2, 0], rot: [0, 0, 0], name: 'top' },
+        { pos: [0, -1.2, 0], rot: [0, 0, Math.PI], name: 'bottom' }
+    ];
+    
+    thrusterPositions.forEach((t, i) => {
+        const housing = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.35, 0.35, 0.8, 16),
+            new THREE.MeshStandardMaterial({ 
+                color: 0x222222, 
+                metalness: 0.7,
+                roughness: 0.5
+            })
+        );
+        housing.position.set(...t.pos);
+        housing.rotation.set(...t.rot);
+        rov.add(housing);
+        
+        // Animated propeller
+        const propGeo = new THREE.BoxGeometry(0.5, 0.05, 0.1);
+        const propMat = new THREE.MeshStandardMaterial({ color: 0x444444 });
+        const propeller = new THREE.Mesh(propGeo, propMat);
+        propeller.position.copy(housing.position);
+        propeller.rotation.copy(housing.rotation);
+        propeller.userData = { 
+            axis: i < 4 ? 'y' : 'z',
+            speed: 0
+        };
+        rov.add(propeller);
+        animations[`thruster_${i}`] = propeller;
+    });
+    
+    // High-intensity LED arrays with volumetric cones
+    const ledGroup = new THREE.Group();
+    
+    // Left LED
+    const leftLED = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.25, 0.3, 0.3, 16),
+        new THREE.MeshBasicMaterial({ 
+            color: 0xffffee,
+            toneMapped: false
+        })
+    );
+    leftLED.position.set(-0.6, 0.3, 1.4);
+    leftLED.rotation.x = Math.PI/2;
+    ledGroup.add(leftLED);
+    
+    // Right LED
+    const rightLED = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.25, 0.3, 0.3, 16),
+        new THREE.MeshBasicMaterial({ 
+            color: 0xffffee,
+            toneMapped: false
+        })
+    );
+    rightLED.position.set(0.6, 0.3, 1.4);
+    rightLED.rotation.x = Math.PI/2;
+    ledGroup.add(rightLED);
+    
+    // Volumetric light cones (simulated with transparent geometry)
+    const coneGeo = new THREE.ConeGeometry(3, 25, 32, 1, true);
+    const coneMat = new THREE.MeshBasicMaterial({
+        color: 0xffffee,
+        transparent: true,
+        opacity: 0.04,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false
+    });
+    
+    const leftCone = new THREE.Mesh(coneGeo, coneMat);
+    leftCone.position.set(-0.6, 0.3, 13);
+    leftCone.rotation.x = Math.PI/2;
+    leftCone.scale.set(1, 1, 2);
+    ledGroup.add(leftCone);
+    
+    const rightCone = new THREE.Mesh(coneGeo, coneMat);
+    rightCone.position.set(0.6, 0.3, 13);
+    rightCone.rotation.x = Math.PI/2;
+    rightCone.scale.set(1, 1, 2);
+    ledGroup.add(rightCone);
+    
+    // Actual spot lights
+    const spotL = new THREE.SpotLight(0xffffee, 5, 60, 0.6, 0.5, 1);
+    spotL.position.set(-0.6, 0.3, 1.2);
+    spotL.target.position.set(-0.6, 0.3, 10);
+    ledGroup.add(spotL);
+    ledGroup.add(spotL.target);
+    
+    const spotR = new THREE.SpotLight(0xffffee, 5, 60, 0.6, 0.5, 1);
+    spotR.position.set(0.6, 0.3, 1.2);
+    spotR.target.position.set(0.6, 0.3, 10);
+    ledGroup.add(spotR);
+    ledGroup.add(spotR.target);
+    
+    rov.add(ledGroup);
+    
+    // Camera gimbal system
+    const gimbal = new THREE.Group();
+    gimbal.position.set(0, 0.5, 1.3);
+    
+    const camHousing = new THREE.Mesh(
+        new THREE.BoxGeometry(0.6, 0.4, 0.5),
+        new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.5 })
+    );
+    gimbal.add(camHousing);
+    
+    const lens = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.15, 0.15, 0.3, 16),
+        new THREE.MeshPhysicalMaterial({
+            color: 0x111111,
+            metalness: 0,
+            roughness: 0,
+            transmission: 0.9,
+            transparent: true
+        })
+    );
+    lens.rotation.x = Math.PI/2;
+    lens.position.z = 0.3;
+    gimbal.add(lens);
+    
+    rov.add(gimbal);
+    animations.gimbal = gimbal;
+    
+    // Add point light for hull reflections
+    const hullLight = new THREE.PointLight(0x00ffff, 0.5, 5);
+    hullLight.position.set(0, 2, 0);
+    rov.add(hullLight);
+    
+    scene.add(rov);
+}
+
+// ==========================================
+// ADVANCED MARINE SNOW SYSTEM
+// ==========================================
+
+function createAdvancedMarineSnow() {
+    // GPU-instanced particles for performance
+    const particleCount = 1200;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const velocities = [];
+    const sizes = new Float32Array(particleCount);
+    
+    for (let i = 0; i < particleCount; i++) {
+        positions[i * 3] = (Math.random() - 0.5) * 150;
+        positions[i * 3 + 1] = (Math.random() - 0.5) * 80;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 150;
+        
+        velocities.push({
+            x: (Math.random() - 0.5) * 0.02,
+            y: -Math.random() * 0.08 - 0.02,
+            z: (Math.random() - 0.5) * 0.02,
+            turbulence: Math.random() * 0.01
+        });
+        
+        sizes[i] = Math.random() * 0.15 + 0.05;
+    }
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    
+    // Custom shader material for particles
+    const material = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.1,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending,
+        sizeAttenuation: true
+    });
+    
+    marineSnowSystem = new THREE.Points(geometry, material);
+    marineSnowSystem.userData = { velocities: velocities };
+    scene.add(marineSnowSystem);
+}
+
+// ==========================================
+// CINEMATIC CREATURE ANIMATIONS
+// ==========================================
+
+function createAnimatedCreatures() {
+    // Create multiple creature types with skeletal-like animation
+    createAnglerfishSwarm();
+    createIsopodColony();
+    createSnailfishSchool();
+}
+
+function createAnglerfishSwarm() {
+    for (let i = 0; i < 3; i++) {
+        const angler = new THREE.Group();
+        
+        // Body with organic deformation
+        const bodyGeo = new THREE.SphereGeometry(1.2, 32, 32);
+        
+        // Deform for fish shape
+        const positions = bodyGeo.attributes.position;
+        for (let j = 0; j < positions.count; j++) {
+            const y = positions.getY(j);
+            if (y > 0) {
+                positions.setX(j, positions.getX(j) * (1 - y * 0.3));
+                positions.setZ(j, positions.getZ(j) * (1 - y * 0.3));
+            }
+        }
+        bodyGeo.computeVertexNormals();
+        
+        const bodyMat = new THREE.MeshPhysicalMaterial({
+            color: 0x0a0a15,
+            roughness: 0.4,
+            metalness: 0.1,
+            clearcoat: 0.6,
+            clearcoatRoughness: 0.2
+        });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.scale.set(1, 0.8, 1.8);
+        angler.add(body);
+        
+        // Animated jaw
+        const jawGroup = new THREE.Group();
+        const jawGeo = new THREE.ConeGeometry(0.6, 1.5, 16);
+        const jaw = new THREE.Mesh(jawGeo, bodyMat);
+        jaw.rotation.x = Math.PI/2;
+        jaw.position.z = 1.2;
+        jawGroup.add(jaw);
+        
+        // Teeth
+        for (let t = 0; t < 8; t++) {
+            const tooth = new THREE.Mesh(
+                new THREE.ConeGeometry(0.04, 0.3, 4),
+                new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 })
+            );
+            tooth.position.set(
+                (t - 3.5) * 0.12,
+                0.3,
+                1.4 + t * 0.05
+            );
+            tooth.rotation.x = Math.PI;
+            jawGroup.add(tooth);
+        }
+        
+        jawGroup.position.y = -0.3;
+        angler.add(jawGroup);
+        animations[`angler_${i}_jaw`] = jawGroup;
+        
+        // Bioluminescent lure with pulsing animation
+        const lureGroup = new THREE.Group();
+        const lureStem = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.02, 0.02, 1.5),
+            new THREE.MeshStandardMaterial({ color: 0x333333 })
+        );
+        lureStem.position.y = 1.5;
+        lureGroup.add(lureStem);
+        
+        const lureBulb = new THREE.Mesh(
+            new THREE.SphereGeometry(0.15, 16, 16),
+            new THREE.MeshBasicMaterial({ 
+                color: 0x00ffff,
+                toneMapped: false
+            })
+        );
+        lureBulb.position.y = 2.2;
+        lureGroup.add(lureBulb);
+        
+        const lureLight = new THREE.PointLight(0x00ffff, 2, 8);
+        lureLight.position.y = 2.2;
+        lureGroup.add(lureLight);
+        
+        lureGroup.position.set(0, 0.8, 1.5);
+        lureGroup.rotation.x = -0.3;
+        angler.add(lureGroup);
+        animations[`angler_${i}_lure`] = lureGroup;
+        
+        // Eyes
+        const eyeGeo = new THREE.SphereGeometry(0.15, 16, 16);
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        
+        const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+        leftEye.position.set(-0.4, 0.2, 0.8);
+        angler.add(leftEye);
+        
+        const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+        rightEye.position.set(0.4, 0.2, 0.8);
+        angler.add(rightEye);
+        
+        // Fins
+        const finGeo = new THREE.BufferGeometry();
+        const finVertices = new Float32Array([
+            0, 0, 0,  0.8, 0.5, 0.3,  0, 0, 0.6,
+            0, 0, 0,  -0.8, 0.5, 0.3,  0, 0, 0.6
+        ]);
+        finGeo.setAttribute('position', new THREE.BufferAttribute(finVertices, 3));
+        finGeo.computeVertexNormals();
+        
+        const finMat = new THREE.MeshStandardMaterial({
+            color: 0x151520,
+            transparent: true,
+            opacity: 0.9,
+            side: THREE.DoubleSide
+        });
+        
+        const dorsalFin = new THREE.Mesh(finGeo, finMat);
+        dorsalFin.position.set(0, 0.8, -0.5);
+        angler.add(dorsalFin);
+        animations[`angler_${i}_fin`] = dorsalFin;
+        
+        // Position and add to scene
+        angler.position.set(
+            (Math.random() - 0.5) * 80,
+            -5 + Math.random() * 15,
+            (Math.random() - 0.5) * 80
+        );
+        
+        angler.userData = {
+            type: 'Anglerfish',
+            velocity: new THREE.Vector3((Math.random() - 0.5) * 0.03, 0, (Math.random() - 0.5) * 0.03),
+            avoidanceRadius: 15,
+            jawOpen: false,
+            id: i
+        };
+        
+        creatures.push(angler);
+        scene.add(angler);
+    }
+}
+
+function createIsopodColony() {
+    for (let i = 0; i < 4; i++) {
+        const isopod = new THREE.Group();
+        
+        // Segmented body with articulation
+        const segments = [];
+        const segmentCount = 11;
+        
+        for (let s = 0; s < segmentCount; s++) {
+            const segGroup = new THREE.Group();
+            
+            // Calculate tapering size
+            let radius = 0.7;
+            if (s < 2) radius = 0.5 + s * 0.1;
+            else if (s > 8) radius = 0.7 - (s - 8) * 0.2;
+            
+            const segGeo = new THREE.CylinderGeometry(radius, radius * 0.9, 0.35, 12);
+            const segMat = new THREE.MeshPhysicalMaterial({
+                color: 0x4a4a5a,
+                roughness: 0.6,
+                metalness: 0.4,
+                clearcoat: 0.3
+            });
+            const seg = new THREE.Mesh(segGeo, segMat);
+            seg.rotation.z = Math.PI/2;
+            segGroup.add(seg);
+            
+            // Legs on each segment (except first)
+            if (s > 0 && s < 9) {
+                for (let leg = 0; leg < 2; leg++) {
+                    const legGroup = new THREE.Group();
+                    const legGeo = new THREE.CylinderGeometry(0.04, 0.03, 0.8);
+                    const leg = new THREE.Mesh(legGeo, segMat);
+                    leg.position.y = -0.4;
+                    legGroup.add(leg);
+                    
+                    // Joint
+                    const joint = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.06),
+                        segMat
+                    );
+                    legGroup.add(joint);
+                    
+                    legGroup.position.set(0, -radius * 0.8, leg === 0 ? 0.3 : -0.3);
+                    legGroup.rotation.z = (leg === 0 ? 1 : -1) * 0.5;
+                    segGroup.add(legGroup);
+                    animations[`isopod_${i}_leg_${s}_${leg}`] = legGroup;
+                }
+            }
+            
+            segGroup.position.x = s * 0.4 - 2;
+            isopod.add(segGroup);
+            segments.push(segGroup);
+        }
+        
+        animations[`isopod_${i}_segments`] = segments;
+        
+        isopod.position.set(
+            (Math.random() - 0.5) * 60,
+            -13 + Math.random() * 3,
+            (Math.random() - 0.5) * 60
+        );
+        isopod.rotation.y = Math.random() * Math.PI * 2;
+        
+        isopod.userData = {
+            type: 'Giant Isopod',
+            velocity: new THREE.Vector3((Math.random() - 0.5) * 0.01, 0, (Math.random() - 0.5) * 0.01),
+            avoidanceRadius: 8,
+            walkCycle: 0,
+            id: i
+        };
+        
+        creatures.push(isopod);
+        scene.add(isopod);
+    }
+}
+
+function createSnailfishSchool() {
+    for (let i = 0; i < 6; i++) {
+        const snail = new THREE.Group();
+        
+        // Gelatinous body with transparency
+        const bodyGeo = new THREE.SphereGeometry(0.8, 24, 24);
+        
+        // Elongate slightly
+        const positions = bodyGeo.attributes.position;
+        for (let j = 0; j < positions.count; j++) {
+            const z = positions.getZ(j);
+            positions.setZ(j, z * 1.3);
+        }
+        bodyGeo.computeVertexNormals();
+        
+        const bodyMat = new THREE.MeshPhysicalMaterial({
+            color: 0xffdddd,
+            transmission: 0.7,
+            opacity: 0.6,
+            transparent: true,
+            roughness: 0.1,
+            ior: 1.33,
+            thickness: 0.5,
+            side: THREE.DoubleSide
+        });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.scale.set(1, 0.6, 1);
+        snail.add(body);
+        
+        // Delicate fins
+        const finShape = new THREE.Shape();
+        finShape.moveTo(0, 0);
+        finShape.quadraticCurveTo(0.5, 0.3, 0.8, 0);
+        finShape.quadraticCurveTo(0.5, -0.3, 0, 0);
+        
+        const finGeo = new THREE.ShapeGeometry(finShape);
+        const finMat = new THREE.MeshPhysicalMaterial({
+            color: 0xffcccc,
+            transparent: true,
+            opacity: 0.4,
+            side: THREE.DoubleSide,
+            transmission: 0.5
+        });
+        
+        const dorsalFin = new THREE.Mesh(finGeo, finMat);
+        dorsalFin.position.set(0, 0.4, -0.3);
+        dorsalFin.rotation.x = -0.3;
+        snail.add(dorsalFin);
+        animations[`snail_${i}_dorsal`] = dorsalFin;
+        
+        const tailFin = new THREE.Mesh(finGeo, finMat);
+        tailFin.position.set(0, 0, -1);
+        tailFin.rotation.y = Math.PI/2;
+        tailFin.scale.set(1.5, 1, 1);
+        snail.add(tailFin);
+        animations[`snail_${i}_tail`] = tailFin;
+        
+        // Internal organs (visible through transparency)
+        const organs = new THREE.Mesh(
+            new THREE.SphereGeometry(0.4, 16, 16),
+            new THREE.MeshBasicMaterial({ color: 0xaa4444, transparent: true, opacity: 0.3 })
+        );
+        organs.position.y = -0.1;
+        snail.add(organs);
+        
+        snail.position.set(
+            (Math.random() - 0.5) * 100,
+            -2 + Math.random() * 12,
+            (Math.random() - 0.5) * 100
+        );
+        
+        snail.userData = {
+            type: 'Snailfish',
+            velocity: new THREE.Vector3(
+                (Math.random() - 0.5) * 0.04,
+                (Math.random() - 0.5) * 0.02,
+                (Math.random() - 0.5) * 0.04
+            ),
+            avoidanceRadius: 12,
+            id: i
+        };
+        
+        creatures.push(snail);
+        scene.add(snail);
+    }
+}
+
+// ==========================================
+// THERMAL VENTS WITH PARTICLE SYSTEMS
+// ==========================================
+
+function createThermalVentsWithParticles() {
+    for (let i = 0; i < 3; i++) {
+        const vent = new THREE.Group();
+        
+        // Complex chimney geometry
+        const chimneyGeo = new THREE.CylinderGeometry(0.8, 2.5, 12, 8, 4, true);
+        const positions = chimneyGeo.attributes.position;
+        
+        // Add irregularity
+        for (let j = 0; j < positions.count; j++) {
+            const noise = Math.random() * 0.3;
+            positions.setX(j, positions.getX(j) + noise);
+            positions.setZ(j, positions.getZ(j) + noise);
+        }
+        chimneyGeo.computeVertexNormals();
+        
+        const chimneyMat = new THREE.MeshStandardMaterial({
+            color: 0x1a1a1a,
+            roughness: 0.9,
+            metalness: 0.3,
+            side: THREE.DoubleSide
+        });
+        const chimney = new THREE.Mesh(chimneyGeo, chimneyMat);
+        chimney.position.y = 6;
+        vent.add(chimney);
+        
+        // Mineral deposits on chimney
+        for (let d = 0; d < 20; d++) {
+            const deposit = new THREE.Mesh(
+                new THREE.SphereGeometry(0.2 + Math.random() * 0.3, 8, 8),
+                new THREE.MeshStandardMaterial({
+                    color: 0x442211,
+                    roughness: 0.8
+                })
+            );
+            const angle = Math.random() * Math.PI * 2;
+            const height = Math.random() * 10 + 1;
+            const radius = 1.5 + Math.random() * 0.5;
+            deposit.position.set(
+                Math.cos(angle) * radius,
+                height,
+                Math.sin(angle) * radius
+            );
+            vent.add(deposit);
+        }
+        
+        // Thermal plume particle system
+        const particleCount = 80;
+        const plumeGeo = new THREE.BufferGeometry();
+        const plumePositions = new Float32Array(particleCount * 3);
+        const plumeSizes = new Float32Array(particleCount);
+        const plumeOpacities = new Float32Array(particleCount);
+        
+        for (let p = 0; p < particleCount; p++) {
+            plumePositions[p * 3] = (Math.random() - 0.5) * 2;
+            plumePositions[p * 3 + 1] = Math.random() * 15;
+            plumePositions[p * 3 + 2] = (Math.random() - 0.5) * 2;
+            plumeSizes[p] = Math.random() * 2 + 0.5;
+            plumeOpacities[p] = Math.random() * 0.5;
+        }
+        
+        plumeGeo.setAttribute('position', new THREE.BufferAttribute(plumePositions, 3));
+        plumeGeo.setAttribute('size', new THREE.BufferAttribute(plumeSizes, 1));
+        plumeGeo.setAttribute('opacity', new THREE.BufferAttribute(plumeOpacities, 1));
+        
+        const plumeMat = new THREE.PointsMaterial({
+            color: 0xff4400,
+            size: 1,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending,
+            sizeAttenuation: true,
+            depthWrite: false
+        });
+        
+        const plume = new THREE.Points(plumeGeo, plumeMat);
+        vent.add(plume);
+        
+        // Heat shimmer effect (animated plane)
+        const shimmerGeo = new THREE.PlaneGeometry(6, 15);
+        const shimmerMat = new THREE.MeshBasicMaterial({
+            color: 0xff8800,
+            transparent: true,
+            opacity: 0.1,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        const shimmer = new THREE.Mesh(shimmerGeo, shimmerMat);
+        shimmer.position.y = 8;
+        vent.add(shimmer);
+        animations[`vent_${i}_shimmer`] = shimmer;
+        
+        vent.position.set(
+            (Math.random() - 0.5) * 80,
+            -15,
+            (Math.random() - 0.5) * 80
+        );
+        
+        vent.userData = {
+            type: 'Hydrothermal Vent',
+            temperature: 350 + Math.random() * 100,
+            plume: plume,
+            particles: {
+                positions: plumePositions,
+                velocities: Array(particleCount).fill().map(() => ({
+                    x: (Math.random() - 0.5) * 0.02,
+                    y: 0.05 + Math.random() * 0.05,
+                    z: (Math.random() - 0.5) * 0.02
+                }))
+            }
+        };
+        
+        thermalVents.push(vent);
+        scene.add(vent);
+    }
+}
+
+// ==========================================
+// CINEMATIC LIGHTING SETUP
+// ==========================================
+
+function setupCinematicLighting() {
+    // Very dim ambient (deep sea)
+    const ambient = new THREE.AmbientLight(0x000820, 0.15);
+    scene.add(ambient);
+    
+    // Blue fill from above (residual surface light)
+    const fillLight = new THREE.DirectionalLight(0x001144, 0.2);
+    fillLight.position.set(10, 50, 10);
+    scene.add(fillLight);
+    
+    // Bioluminescent ambience from terrain
+    const bioLight = new THREE.PointLight(0x00ffff, 0.5, 30);
+    bioLight.position.set(-20, -10, -20);
+    scene.add(bioLight);
+}
+
+// ==========================================
+// ANIMATION SYSTEM
+// ==========================================
+
+function updateAnimations(delta) {
+    const time = clock.getElapsedTime();
+    
+    // Animate anglerfish
+    for (let i = 0; i < 3; i++) {
+        const jaw = animations[`angler_${i}_jaw`];
+        const lure = animations[`angler_${i}_lure`];
+        const fin = animations[`angler_${i}_fin`];
+        
+        if (jaw) {
+            // Random jaw movements
+            const jawOpen = Math.sin(time * 2 + i) * 0.3 + 0.3;
+            jaw.rotation.x = jawOpen;
+        }
+        
+        if (lure) {
+            // Lure pulsating and swaying
+            lure.rotation.z = Math.sin(time * 3 + i) * 0.2;
+            const bulb = lure.children[1];
+            const light = lure.children[2];
+            if (bulb && light) {
+                const intensity = 0.8 + Math.sin(time * 4 + i) * 0.4;
+                bulb.material.opacity = intensity;
+                light.intensity = intensity * 2;
+            }
+        }
+        
+        if (fin) {
+            // Fin undulation
+            fin.rotation.y = Math.sin(time * 5 + i) * 0.3;
+        }
+    }
+    
+    // Animate isopods
+    for (let i = 0; i < 4; i++) {
+        const segments = animations[`isopod_${i}_segments`];
+        if (segments) {
+            // Body wave motion
+            segments.forEach((seg, idx) => {
+                seg.rotation.y = Math.sin(time * 3 + idx * 0.5 + i) * 0.1;
+            });
+        }
+        
+        // Leg articulation
+        for (let s = 1; s < 9; s++) {
+            for (let leg = 0; leg < 2; leg++) {
+                const legGroup = animations[`isopod_${i}_leg_${s}_${leg}`];
+                if (legGroup) {
+                    const walkCycle = Math.sin(time * 5 + s * 0.5 + leg * Math.PI) * 0.3;
+                    legGroup.rotation.z = (leg === 0 ? 1 : -1) * (0.5 + walkCycle);
+                }
+            }
+        }
+    }
+    
+    // Animate snailfish
+    for (let i = 0; i < 6; i++) {
+        const dorsal = animations[`snail_${i}_dorsal`];
+        const tail = animations[`snail_${i}_tail`];
+        
+        if (dorsal) {
+            dorsal.rotation.z = Math.sin(time * 4 + i) * 0.2;
+        }
+        if (tail) {
+            tail.rotation.y = Math.PI/2 + Math.sin(time * 6 + i) * 0.3;
+        }
+    }
+    
+    // Animate thermal vents
+    for (let i = 0; i < 3; i++) {
+        const shimmer = animations[`vent_${i}_shimmer`];
+        if (shimmer) {
+            shimmer.material.opacity = 0.05 + Math.sin(time * 2 + i) * 0.05;
+            shimmer.rotation.y = time * 0.1;
+        }
+    }
+    
+    // Animate ROV thrusters
+    const isMoving = keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD'] || keys['KeyQ'] || keys['KeyE'];
+    for (let i = 0; i < 6; i++) {
+        const prop = animations[`thruster_${i}`];
+        if (prop) {
+            const targetSpeed = isMoving ? (keys['ShiftLeft'] ? 25 : 15) : 5;
+            prop.userData.speed += (targetSpeed - prop.userData.speed) * 0.1;
+            
+            if (prop.userData.axis === 'y') {
+                prop.rotation.y += prop.userData.speed * delta;
+            } else {
+                prop.rotation.z += prop.userData.speed * delta;
+            }
+        }
+    }
+    
+    // Gimbal stabilization
+    const gimbal = animations.gimbal;
+    if (gimbal) {
+        gimbal.rotation.x = THREE.MathUtils.lerp(gimbal.rotation.x, -mouseY * 0.3, 0.1);
+        gimbal.rotation.y = THREE.MathUtils.lerp(gimbal.rotation.y, -mouseX * 0.3, 0.1);
+    }
+}
+
+// ==========================================
+// PHYSICS & MOVEMENT
+// ==========================================
+
+function updateROVPhysics(delta) {
+    if (!rov) return;
+    
+    const baseSpeed = 3;
+    const boostMult = keys['ShiftLeft'] ? 2.5 : 1;
+    const acceleration = 8 * delta;
+    
+    // Input vectors
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(rov.quaternion);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(rov.quaternion);
+    const up = new THREE.Vector3(0, 1, 0);
+    
+    // Apply forces
+    if (keys['KeyW']) rovVelocity.add(forward.multiplyScalar(acceleration * boostMult));
+    if (keys['KeyS']) rovVelocity.add(forward.multiplyScalar(-acceleration * 0.5));
+    if (keys['KeyA']) rovVelocity.add(right.multiplyScalar(-acceleration));
+    if (keys['KeyD']) rovVelocity.add(right.multiplyScalar(acceleration));
+    if (keys['KeyQ']) rovVelocity.add(up.multiplyScalar(acceleration * 0.5));
+    if (keys['KeyE']) rovVelocity.add(up.multiplyScalar(-acceleration * 0.5));
+
+    // Water resistance (quadratic drag for realism)
+    const speed = rovVelocity.length();
+    const dragCoefficient = 0.3;
+    const drag = rovVelocity.clone().normalize().multiplyScalar(-speed * speed * dragCoefficient * delta);
+    rovVelocity.add(drag);
+
+    // Apply velocity
+    rov.position.add(rovVelocity.clone().multiplyScalar(delta));
+
+    // Banking rotation based on horizontal velocity
+    const localVelocity = rovVelocity.clone().applyQuaternion(rov.quaternion.clone().inverse());
+    const bankAngle = -localVelocity.x * 0.1;
+    const pitchAngle = localVelocity.z * 0.05;
+
+    // Smooth rotation
+    const targetRotationY = rov.rotation.y - mouseX * 2 * delta;
+    const targetRotationX = Math.max(-0.4, Math.min(0.4, mouseY * 0.5 + pitchAngle));
+    const targetRotationZ = bankAngle;
+
+    rov.rotation.y += (targetRotationY - rov.rotation.y) * 0.1;
+    rov.rotation.x += (targetRotationX - rov.rotation.x) * 0.1;
+    rov.rotation.z += (targetRotationZ - rov.rotation.z) * 0.1;
+
+    // Camera follow with cinematic lag
+    const idealOffset = new THREE.Vector3(0, 3, 12);
+    idealOffset.applyQuaternion(rov.quaternion);
+    const idealPos = rov.position.clone().add(idealOffset);
+
+    camera.position.lerp(idealPos, 0.05);
+    camera.lookAt(rov.position.clone().add(new THREE.Vector3(0, 1, 0)));
+
+    // Update HUD depth
+    const depth = Math.abs(Math.round(rov.position.y - 11034));
+    document.getElementById('depth-display').textContent = (11034 + depth).toLocaleString();
+}
+
+// ==========================================
+// ADVANCED CREATURE AI & ANIMATION
+// ==========================================
+
+function updateCreatureAI(delta) {
+    const time = clock.getElapsedTime();
+    
+    creatures.forEach((creature, index) => {
+        const data = creature.userData;
+        const pos = creature.position;
+        
+        // Distance to ROV
+        const toROV = rov.position.clone().sub(pos);
+        const distToROV = toROV.length();
+        
+        // State machine
+        if (!data.state) data.state = 'wander';
+        if (!data.stateTimer) data.stateTimer = 0;
+        data.stateTimer += delta;
+        
+        // State transitions
+        switch(data.state) {
+            case 'wander':
+                // Random walk with noise
+                const noiseX = Math.sin(time * 0.5 + index) * 0.02;
+                const noiseZ = Math.cos(time * 0.3 + index) * 0.02;
+                data.velocity.x += noiseX * delta;
+                data.velocity.z += noiseZ * delta;
+                
+                // Avoid terrain
+                if (pos.y < -14) data.velocity.y += 0.01;
+                if (pos.y > 5) data.velocity.y -= 0.01;
+                
+                // Transition to flee if ROV close
+                if (distToROV < data.avoidanceRadius && data.type !== 'Snailfish') {
+                    data.state = 'flee';
+                    data.stateTimer = 0;
+                    addLogEntry(`${data.type} detected ROV - evasive maneuvers`);
+                }
+                break;
+                
+            case 'flee':
+                // Accelerate away from ROV
+                const fleeDir = toROV.clone().normalize().negate();
+                data.velocity.add(fleeDir.multiplyScalar(0.05));
+                
+                // Return to wander after 5 seconds
+                if (data.stateTimer > 5 || distToROV > data.avoidanceRadius * 2) {
+                    data.state = 'wander';
+                }
+                break;
+                
+            case 'investigate':
+                // Slow approach to ROV (for curious creatures)
+                if (distToROV > 5) {
+                    const approach = toROV.clone().normalize().multiplyScalar(0.01);
+                    data.velocity.add(approach);
+                }
+                break;
+        }
+        
+        // Velocity damping
+        data.velocity.multiplyScalar(0.98);
+        
+        // Apply movement
+        pos.add(data.velocity);
+        
+        // Boundary constraints
+        if (Math.abs(pos.x) > 120) data.velocity.x *= -1;
+        if (Math.abs(pos.z) > 120) data.velocity.z *= -1;
+        if (pos.y < -15 || pos.y > 10) data.velocity.y *= -1;
+        
+        // Orientation - smooth turn towards velocity
+        if (data.velocity.length() > 0.001) {
+            const targetLook = pos.clone().add(data.velocity);
+            const targetQuaternion = new THREE.Quaternion();
+            const matrix = new THREE.Matrix4();
+            matrix.lookAt(targetLook, pos, new THREE.Vector3(0, 1, 0));
+            targetQuaternion.setFromRotationMatrix(matrix);
+            
+            // Special handling for isopods (they move sideways)
+            if (data.type === 'Giant Isopod') {
+                targetQuaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI/2));
+            }
+            
+            creature.quaternion.slerp(targetQuaternion, 0.05);
+        }
+        
+        // Animation-specific updates
+        if (data.type === 'Anglerfish') {
+            // Jaw snap animation when close to ROV
+            const jaw = animations[`angler_${data.id}_jaw`];
+            if (jaw && distToROV < 8) {
+                const snap = Math.sin(time * 10) * 0.5 + 0.5;
+                jaw.rotation.x = snap * 0.8;
+            }
+        }
+        
+        // Bioluminescence pulsing
+        if (data.bioluminescent !== false) {
+            creature.traverse((child) => {
+                if (child.isPointLight) {
+                    const pulse = 0.7 + Math.sin(time * 3 + index) * 0.3;
+                    child.intensity = pulse * 2;
+                }
+                if (child.material && child.material.emissive) {
+                    const pulse = 0.5 + Math.sin(time * 2 + index) * 0.5;
+                    child.material.emissiveIntensity = pulse;
+                }
+            });
+        }
+    });
+}
+
+// ==========================================
+// PARTICLE SYSTEMS UPDATE
+// ==========================================
+
+function updateParticles(delta) {
+    // Marine snow
+    if (marineSnowSystem) {
+        const positions = marineSnowSystem.geometry.attributes.position.array;
+        const velocities = marineSnowSystem.userData.velocities;
+        
+        for (let i = 0; i < velocities.length; i++) {
+            // Update position
+            positions[i * 3] += velocities[i].x;
+            positions[i * 3 + 1] += velocities[i].y;
+            positions[i * 3 + 2] += velocities[i].z;
+            
+            // Turbulence
+            velocities[i].x += (Math.random() - 0.5) * velocities[i].turbulence;
+            velocities[i].z += (Math.random() - 0.5) * velocities[i].turbulence;
+            
+            // Reset if out of bounds
+            if (positions[i * 3 + 1] < -30) {
+                positions[i * 3 + 1] = 30;
+                positions[i * 3] = rov.position.x + (Math.random() - 0.5) * 80;
+                positions[i * 3 + 2] = rov.position.z + (Math.random() - 0.5) * 80;
+            }
+        }
+        
+        marineSnowSystem.geometry.attributes.position.needsUpdate = true;
+    }
+    
+    // Thermal vent particles
+    thermalVents.forEach((vent, idx) => {
+        const plume = vent.userData.plume;
+        const positions = plume.geometry.attributes.position.array;
+        const vels = vent.userData.particles.velocities;
+        
+        for (let i = 0; i < vels.length; i++) {
+            positions[i * 3] += vels[i].x + (Math.random() - 0.5) * 0.01;
+            positions[i * 3 + 1] += vels[i].y;
+            positions[i * 3 + 2] += vels[i].z + (Math.random() - 0.5) * 0.01;
+            
+            // Spread as they rise
+            positions[i * 3] *= 1.002;
+            positions[i * 3 + 2] *= 1.002;
+            
+            // Reset
+            if (positions[i * 3 + 1] > 15) {
+                positions[i * 3] = (Math.random() - 0.5) * 2;
+                positions[i * 3 + 1] = 0;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 2;
+            }
+        }
+        
+        plume.geometry.attributes.position.needsUpdate = true;
+    });
+}
+
+// ==========================================
+// SEMANTIC ANALYSIS SYSTEM
+// ==========================================
+
+let lastAnalysisTime = 0;
+let currentTarget = null;
+
+function updateSemanticAnalysis() {
+    const now = clock.getElapsedTime();
+    if (now - lastAnalysisTime < 0.5) return; // Limit update rate
+    lastAnalysisTime = now;
+    
+    // Raycast from screen center
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    
+    // Check creatures
+    const creatureIntersects = raycaster.intersectObjects(creatures, true);
+    let target = null;
+    let targetType = null;
+    
+    if (creatureIntersects.length > 0) {
+        let obj = creatureIntersects[0].object;
+        while (obj.parent && obj.parent !== scene) {
+            obj = obj.parent;
+        }
+        if (obj.userData.type) {
+            target = obj;
+            targetType = obj.userData.type;
+        }
+    }
+    
+    // Check thermal vents
+    const ventIntersects = raycaster.intersectObjects(thermalVents, true);
+    if (!target && ventIntersects.length > 0) {
+        let obj = ventIntersects[0].object;
+        while (obj.parent && obj.parent !== scene) {
+            obj = obj.parent;
+        }
+        if (obj.userData.type) {
+            target = obj;
+            targetType = obj.userData.type;
+        }
+    }
+    
+    // Update UI if target changed
+    if (target !== currentTarget) {
+        currentTarget = target;
+        const panel = document.getElementById('target-panel');
+        
+        if (target && database[targetType]) {
+            const info = database[targetType];
+            panel.innerHTML = `
+                <div class="target-name">${info.name}</div>
+                <div class="text-yellow-400 text-sm mb-2">${targetType}</div>
+                <div class="target-data">
+                    <div class="mb-2 text-cyan-300">${info.desc}</div>
+                    <div class="text-xs text-green-400 mb-2 p-2 bg-green-900/20 border border-green-500/30">
+                        <span class="text-green-300">ANALYSIS:</span> ${info.analysis}
+                    </div>
+                    <div class="flex justify-between text-xs">
+                        <span class="text-cyan-500">BEHAVIOR:</span>
+                        <span class="text-cyan-300 max-w-[200px] text-right">${info.behavior}</span>
+                    </div>
+                    <div class="mt-2 pt-2 border-t border-cyan-500/30 flex justify-between items-center">
+                        <span class="text-cyan-500 text-xs">THREAT LEVEL:</span>
+                        <span class="${info.threat === 'EXTREME' || info.threat === 'MODERATE' ? 'text-red-500' : 'text-green-400'} font-bold text-sm animate-pulse">
+                            ${info.threat}
+                        </span>
+                    </div>
+                </div>
+            `;
+            
+            if (Math.random() < 0.3) {
+                addLogEntry(`Target locked: ${info.name}`);
+            }
+        } else {
+            panel.innerHTML = `
+                <div class="target-name text-cyan-600">SCANNING...</div>
+                <div class="target-data text-cyan-700">
+                    Awaiting target acquisition. Use crosshair to analyze biological or geological entities.
+                    <div class="mt-4 text-xs text-cyan-800">
+                        Range: 50m | Resolution: 4K | Spectral: Full RGB+Thermal
+                    </div>
+                </div>
+            `;
+        }
+    }
+}
+
+function addLogEntry(text) {
+    const log = document.getElementById('semantic-log');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    entry.innerHTML = `<span class="text-cyan-600">[${time}]</span> ${text}`;
+    log.appendChild(entry);
+    log.scrollTop = log.scrollHeight;
+    
+    // Limit entries
+    while (log.children.length > 20) {
+        log.removeChild(log.firstChild);
+    }
+}
+
+// ==========================================
+// MODE SWITCHING
+// ==========================================
+
+function setMode(mode) {
+    currentMode = mode;
+    
+    // Update buttons
+    document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(`btn-${mode}`).classList.add('active');
+    
+    // Apply post-processing effects
+    const container = document.getElementById('canvas-container');
+    
+    switch(mode) {
+        case 'thermal':
+            scene.overrideMaterial = null;
+            scene.fog.color.setHex(0x000000);
+            scene.fog.density = 0.01;
+            // Add thermal vision post-processing
+            addLogEntry('Switched to THERMAL CHRONOGRAPHY mode');
+            addLogEntry('Detecting heat signatures...');
+            break;
+            
+        case 'lidar':
+            scene.overrideMaterial = null;
+            scene.fog.density = 0.005;
+            // Show wireframe terrain
+            if (terrain && !terrain.userData.wireframe) {
+                const wireGeo = new THREE.WireframeGeometry(terrain.geometry);
+                const wireMat = new THREE.LineBasicMaterial({ 
+                    color: 0x00ff44, 
+                    opacity: 0.15, 
+                    transparent: true 
+                });
+                const wireframe = new THREE.LineSegments(wireGeo, wireMat);
+                wireframe.rotation.copy(terrain.rotation);
+                wireframe.position.copy(terrain.position);
+                terrain.userData.wireframe = wireframe;
+                scene.add(wireframe);
+            }
+            addLogEntry('Switched to LiDAR MESH MAPPING mode');
+            addLogEntry('Real-time topographic scan active');
+            break;
+            
+        default: // normal
+            scene.overrideMaterial = null;
+            scene.fog.color.setHex(0x000205);
+            scene.fog.density = 0.015;
+            if (terrain && terrain.userData.wireframe) {
+                scene.remove(terrain.userData.wireframe);
+                terrain.userData.wireframe = null;
+            }
+            addLogEntry('Switched to RGB NORMAL mode');
+    }
+}
+
+// ==========================================
+// RENDER LOOP
+// ==========================================
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    
+    const delta = clock.getDelta();
+    const elapsed = clock.getElapsedTime();
+    
+    // Update all systems
+    updateROVPhysics(delta);
+    updateCreatureAI(delta);
+    updateParticles(delta);
+    updateAnimations(delta);
+    updateSemanticAnalysis();
+    
+    // Random environmental events
+    if (Math.random() < 0.001) {
+        const events = [
+            'Seismic activity detected 2.3km NW',
+            'Thermal plume density increasing',
+            'Current shift: 0.4 knots SW',
+            'Bioluminescent bloom detected',
+            'Mineral precipitation observed',
+            'Pressure fluctuation: +2 ATM'
+        ];
+        addLogEntry(events[Math.floor(Math.random() * events.length)]);
+    }
+    
+    // Render with post-processing
+    composer.render();
+}
+
+// Initialize
+init();
+
+// Initial log entries
+setTimeout(() => addLogEntry('ROV systems nominal. Begin exploration.'), 2000);
+setTimeout(() => addLogEntry('Warning: Extreme pressure environment. Hull integrity at 98%.'), 4000);
+</script>
+</body>
+</html>
